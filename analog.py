@@ -1,9 +1,37 @@
+""" Libraries """
 from os import walk
 from os.path import join
+from datetime import datetime, timedelta
 
-def search(quote, verbose = 0):
-    """ IN: quote <str>: part of the quote to be searched, verbose <int>: level of verbosity
-        DO: search if a quote is in the log file """
+#>------------------------------------------ FUNCTION -------------------------------------------<#
+
+def converttime(timestamp):
+    """ IN: timestamp <str>: timestamp to be converted
+        OUT: a time object <time>
+        DO: convert a string in a time object """
+    return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+
+def taketime(message):
+    """ IN: message <str>: a message to take a string of time
+        OUT: a string representing a time and a date <str>
+        DO: take the time from a line of log """
+    return (message[3:26] if message[2] == "[" else message[:23]) + "000"
+
+def takeconvert(message):
+    """ IN: message <str>: a message to take a string of time
+        OUT: a time object <time>
+        DO: execute converttime() and taketime() function togheder """
+    return converttime(taketime(message))
+
+def timediff(time1, time2):
+    """ IN: time1 <str>: a message from log file, time2 <str>: same as time1
+        OUT: a time difference object <timediff>
+        DO: subtract time1 and time2 and apply absolute value """
+    return abs(takeconvert(time1) - takeconvert(time2))
+
+def search(message, verbose = 0):
+    """ IN: message <str>: part of the message to be searched, verbose <int>: level of verbosity
+        DO: search if a message is in the log file """
 
     logs_list = [join(root, name) # Build list of files, based on current directory
                  for root, dirs, files in walk(".\\")
@@ -14,21 +42,11 @@ def search(quote, verbose = 0):
 
     for log_name in logs_list:
 
-        log_data = open(log_name, 'r')
         line_count = 0
 
-        for line in log_data:
-            try:
-                if log_name.endswith(".log"): # if line[2] == "[":
-                    text = line[29:].split('] ')[1] if line[28] == "[" else line[28:]
-                else:
-                    text = line.split('] ')[1] if line[19] == "[" else line[19:]
-            except IndexError:
-                continue
+        for line in open(log_name, 'r'):
 
-            text, quote = text.lower(), quote.lower() # Needed for some message
-
-            if text.find(quote) >= 0: # Line counter
+            if (line.lower()).find(message.lower()) >= 0: # Line counter
                 line_count += 1
                 if verbose > 1:
                     print(line)
@@ -36,13 +54,67 @@ def search(quote, verbose = 0):
         if line_count > 0: # File counter
             file_count += 1
             if verbose > 0:
-                print(f"Found {quote} in {log_name}: {line_count} results found")
+                print(f"Found {message} in {log_name}: {line_count} results found")
 
-        log_data.close()
+    print(f"Found {file_count}/{len(logs_list)} files containing {message}")
 
-    print(f"Found {file_count}/{len(logs_list)} files containing {quote}")
+def match(source, message):
+    """ IN: source [str]: source of the message (U1, U2, En), message [int]: part of the message
+        DO: try to find couple of message with time deltas less than 1 minute"""
 
-#>-----------------------------------------------------------------------------------------------<#
+    line_list1, line_list2 = [], []
+
+    if "U1" in source:
+        u1_file = [join(root, name)
+                   for root, dirs, files in walk(".\\u1")
+                   for name in files
+                   if name.endswith((".txt"))]
+
+        u1_line = ["20" + log[5:13].replace("_", "-") + " " + line
+                    for log in u1_file
+                    for line in open(log, 'r')
+                    if line.find(message[source.index("U1")]) >= 0]
+
+        line_list1 = u1_line
+        print("Searching " + message[source.index("U1")] + f" in U1: {len(u1_line)} results found")
+
+    if "U2" in source:
+        u2_file = [join(root, name)
+                   for root, dirs, files in walk(".\\u2")
+                   for name in files
+                   if name.endswith((".txt"))]
+
+        u2_line = ["20" + log[5:13].replace("_", "-") + " " + line
+                    for log in u2_file
+                    for line in open(log, 'r')
+                    if line.find(message[source.index("U2")]) >= 0]
+
+        if len(line_list1) == 0:
+            line_list1 = u2_line
+        else:
+            line_list2 = u2_line
+        print("Searching " + message[source.index("U2")] + f" in U2: {len(u2_line)} results found")
+
+    if "En" in source:
+        en_file = [join(root, name)
+                   for root, dirs, files in walk(".\\")
+                   for name in files
+                   if name.endswith((".log"))]
+
+        en_line = [line
+                    for log in en_file
+                    for line in open(log, 'r')
+                    if line.find(message[source.index("En")]) >= 0]
+
+        line_list2 = en_line
+        print("Searching " + message[source.index("En")] + f" in En: {len(en_line)} results found")
+
+    for item1 in line_list1:
+        for item2 in line_list2:
+            if timediff(item1, item2) < timedelta(minutes=1):
+                print(f"Match found, time delta: {timediff(item1, item2)}")
+
+#>-------------------------------------------- MAIN ---------------------------------------------<#
 
 # This KPI have not message specified:
 #     Speech Quality
@@ -81,10 +153,10 @@ lines_list = [  "ATTACH REQUEST",       # Network Attach Time
                 # "Floor Granted",
                 "SIP INVITE",           # End-to-End MCPTT Access Time
                 # "Group Call Request",
-                # "SIP INVITE",           # Late Call Entry Time
+                # "SIP INVITE",         # Late Call Entry Time
                 "SIP CHANGE_CHANNEL",
                 "SIP START_MONITORING",
-                # "SIP INVITE",           # MCVideo Call Setup Time
+                # "SIP INVITE",         # MCVideo Call Setup Time
                 # "SIP 200 OK",
                 "SIP MESSAGE",          # MCData Delivery Time
                 "SIP MESSAGE RECEIVED",
@@ -93,6 +165,11 @@ lines_list = [  "ATTACH REQUEST",       # Network Attach Time
                 "ECHO REPLY" ]
 
 for element in lines_list:
-    search(element, 1)
+    search(element, 0)
+
+print("--------------------------------------------------")
+
+match(["U1", "U2"], ["floor granted", "Floor Request"])
+match(["U2", "U1"], ["floor granted", "Floor Request"])
 
 #>-----------------------------------------------------------------------------------------------<#
