@@ -3,18 +3,23 @@ from os import walk
 from os.path import join
 from datetime import datetime, timedelta
 
-#>------------------------------------------ FUNCTION -------------------------------------------<#
+#>------------------------------------------- CLASS ---------------------------------------------<#
 
 class TimeLine:
-    """ IN: message <str>: a message to take a string of time
-        ATTRIBUTES: line <str>: the original line, time <time>: the timestamp as time object
-        METHODS: line_to_time: return timestamp of the line, __sub__: allow subtraction """
+    """ INPUT:
+            line <str>: a log line to take a string of time
+        ATTRIBUTES:
+            line <str>: the original line
+            time <time>: the timestamp as time object
+        METHODS:
+            __line_to_time: return timestamp of the line, used to set time
+            __sub__: allow time subtraction between lines """
 
     def __init__(self, line):
-        self.line = line                # Original line
-        self.time = self.line_to_time() # Timestamp of the line
+        self.line = line                  # Original line
+        self.time = self.__line_to_time() # Timestamp of the line
 
-    def line_to_time(self):
+    def __line_to_time(self):
         """ IN: message <str>: a message to take a string of time
             OUT: a time object <time>
             DO: convert a string in a time object """
@@ -23,104 +28,113 @@ class TimeLine:
         return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
 
     def __sub__(self, other):
-        """ IN: self <str>: a message from log file, other <str>: same as time1
+        """ IN: self <str>: a message from log file; other <str>: same as time1
             OUT: a time difference object <timediff>
             DO: subtract self.time and other.time and apply absolute value """
 
         return abs(self.time - other.time)
 
-def search(message, verbose = 0):
-    """ IN: message <str>: part of the message to be searched, verbose <int>: level of verbosity
-        DO: search if a message is in the log file """
+class SearchFile:
+    """ INPUT:
+            time_limit <int>: max time difference delta between message, default = 60
+        ATTRIBUTES:
+            time_limit <int>: max time difference in second
+            logs [str]: list of all files
+            file_XX [str]: list of files from a specific source
+            line_XX [str]: list of all lines from a specific source
+        METHODS:
+            __build_line_list: used from match, make a list of lines with a specified message
+            match: find two matching lines with time difference less than time_limit
+            search: search a message in all files """
 
-    logs_list = [join(root, name) # Build list of files, based on current directory
-                 for root, dirs, files in walk(".\\")
-                 for name in files
-                 if name.endswith((".txt", ".log"))]
+    def __init__(self, time_limit = 60):
 
-    file_count = 0
+        self.time_limit = time_limit # Time limit in second
 
-    for log_name in logs_list:
+        self.logs = [join(root, name) # List of all files, based on current directory
+                    for root, dirs, files in walk(".\\")
+                    for name in files
+                    if name.endswith((".txt", ".log"))]
 
-        line_count = 0
+        self.file_u1 = [join(root, name) # List of log files from User Equipment 1
+                        for root, dirs, files in walk(".\\u1")
+                        for name in files
+                        if name.endswith((".txt"))]
 
-        for line in open(log_name, 'r'):
+        self.line_u1 = ["20" + log[5:13].replace("_", "-") + " " + line
+                        for log in self.file_u1
+                        for line in open(log, 'r')]
 
-            if (line.lower()).find(message.lower()) >= 0: # Line counter
-                line_count += 1
-                if verbose > 1:
-                    print(line)
+        self.file_u2 = [join(root, name) # List of log files from User Equipment 2
+                        for root, dirs, files in walk(".\\u2")
+                        for name in files
+                        if name.endswith((".txt"))]
 
-        if line_count > 0: # File counter
-            file_count += 1
-            if verbose > 0:
-                print(f"Found {message} in {log_name}: {line_count} results found")
+        self.line_u2 = ["20" + log[5:13].replace("_", "-") + " " + line
+                        for log in self.file_u2
+                        for line in open(log, 'r')]
 
-    print(f"Found {file_count}/{len(logs_list)} files containing {message}")
+        self.file_en = [join(root, name) # List of log files from Enensys
+                        for root, dirs, files in walk(".\\")
+                        for name in files
+                        if name.endswith((".log"))]
 
-def buildlinelist(source, message):
-    """ IN: source <str>: source of the message (U1, U2, En), message <str>: part of the message
-        OUT: list of lines from file source [str]
-        DO: make a list of lines who contain message"""
+        self.line_en = [line
+                        for log in self.file_en
+                        for line in open(log, 'r')]
 
-    if source in ["U1", "U2"]:
+    def __build_line_list(self, src, msg):
+        """ IN: src <str>: message source (u1, u2, en); msg <str>: part of the message
+            OUT: list of lines from file source [str]
+            DO: make a list of lines who contain message """
 
-        file_list = [join(root, name)
-                     for root, dirs, files in walk(".\\" + source.lower())
-                     for name in files
-                     if name.endswith((".txt"))]
+        line_list = self.line_u1 if src == "u1" else self.line_u2 if src == "u2" else self.line_en
 
-        return ["20" + log[5:13].replace("_", "-") + " " + line
-                for log in file_list
-                for line in open(log, 'r')
-                if line.find(message) >= 0]
+        return [line
+                for line in line_list
+                if line.find(msg) >= 0]
 
-    file_list = [join(root, name)
-                for root, dirs, files in walk(".\\")
-                for name in files
-                if name.endswith((".log"))]
+    def match(self, src1, msg1, src2, msg2):
+        """ IN: src1, src2 <str>: message source (u1, u2, en); msg1, msg2 <str>: part of the message
+            DO: try to find couple of message with time deltas less than self.time_limit minute """
 
-    return [line
-            for log in file_list
-            for line in open(log, 'r')
-            if line.find(message) >= 0]
+        line_list1 = self.__build_line_list(src1, msg1)
+        print(f"\nSearching {msg1} in {src1}: {len(line_list1)} results")
 
-def match(source, message):
-    """ IN: source [str]: source of the message (U1, U2, En), message [str]: part of the message
-        DO: try to find couple of message with time deltas less than 1 minute"""
+        line_list2 = self.__build_line_list(src2, msg2)
+        print(f"Searching {msg2} in {src2}: {len(line_list2)} results")
 
-    line_list1, line_list2 = [], []
+        for item1 in line_list1:
+            for item2 in line_list2:
+                time_difference = TimeLine(item1) - TimeLine(item2)
+                if time_difference < timedelta(seconds = self.time_limit):
+                    print(f"  Match found, time delta: {time_difference}")
 
-    if "U1" in source:
+    def search(self, msg, verbose = 0):
+        """ IN: msg <str>: part of the message; verbose <int>: level of verbosity
+            DO: search if a message is in the log file """
 
-        line_list1 = buildlinelist("U1", message[source.index("U1")])
-        print("Searching " + message[source.index("U1")] + f" in U1: {len(line_list1)} results")
+        file_count = 0
+        for log_name in self.logs:
 
-    if "U2" in source:
+            line_count = 0
+            for line in open(log_name, 'r'):
 
-        if len(line_list1) == 0:
-            line_list1 = buildlinelist("U2", message[source.index("U2")])
-            print("Searching " + message[source.index("U2")] + f" in U2: {len(line_list1)} results")
-        else:
-            line_list2 = buildlinelist("U2", message[source.index("U2")])
-            print("Searching " + message[source.index("U2")] + f" in U2: {len(line_list2)} results")
+                if (line.lower()).find(msg.lower()) >= 0: # Line counter
+                    line_count += 1
+                    if verbose > 1:
+                        print(line)
 
-    if "En" in source:
+            if line_count > 0: # File counter
+                file_count += 1
+                if verbose > 0:
+                    print(f"Found {msg} in {log_name}: {line_count} results found")
 
-        line_list2 = buildlinelist("En", source.index("En"))
-        print("Searching " + message[source.index("En")] + f" in En: {len(line_list2)} results")
-
-    for item1 in line_list1:
-        t_item1 = TimeLine(item1)
-        for item2 in line_list2:
-            t_item2 = TimeLine(item2)
-            # Evaluate time difference and print only match whose difference are less than 1 minute
-            if t_item1 - t_item2 < timedelta(minutes = 1):
-                print(f"Match found, time delta: {t_item1 - t_item2}")
+        print(f"Found {file_count}/{len(self.logs)} files containing {msg}")
 
 #>-------------------------------------------- MAIN ---------------------------------------------<#
 
-# This KPI have not message specified:
+# This KPI have not message specified (11/21):
 #     Speech Quality
 #     Mouth-to-Ear Latency
 #     Speech Service Interruption Time
@@ -168,12 +182,14 @@ lines_list = [  "ATTACH REQUEST",       # Network Attach Time
                 "ECHO REQUEST",         # Round Trip Time - for ping service
                 "ECHO REPLY" ]
 
-for element in lines_list:
-    search(element, 0)
+sf = SearchFile()
 
-print("--------------------------------------------------")
+for item in lines_list:
+    sf.search(item, 0)
 
-match(["U1", "U2"], ["floor granted", "Floor Request"])
-match(["U2", "U1"], ["floor granted", "Floor Request"])
+print("\n" + "-" * 50)
+
+sf.match("u1", "floor granted", "u2", "Floor Request")
+sf.match("u2", "floor granted", "u1", "Floor Request")
 
 #>-----------------------------------------------------------------------------------------------<#
